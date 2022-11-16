@@ -1,0 +1,209 @@
+---
+title: "16S Assignment"
+author: "Raphael Enaud"
+date: '`r format(Sys.time(), "%d %m %Y")`'
+
+header-includes:
+   - \usepackage{color, fancyvrb}
+output:
+  rmdformats::readthedown:
+    highlight: kate
+    numbersections : yes    
+  html_document: 
+    fig_height: 7
+    fig_width: 10
+---
+
+```{r knitrinit, include=FALSE, warning=FALSE, message=FALSE, cache=TRUE}
+
+library(rstudioapi)    
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+path <- "./Fastq/"
+
+library(knitr)
+library(rmdformats)
+library("kableExtra")
+library(DESeq2)
+library("ggplot2")     
+library("readxl")       
+library("dplyr")      
+library(knitr)
+library(rmdformats)
+library("kableExtra")
+library(DESeq2)
+library(psy)
+library(Rcpp)
+library(nnet)
+library(dplyr)
+library(ggplot2)
+library(psy)
+library(prettyR)
+library(corrplot)
+library(readr)
+library(questionr)
+library(finalfit)
+library(labelled)
+library("dada2")
+packageVersion("dada2")
+library(ShortRead)
+packageVersion("ShortRead")
+library(Biostrings)
+packageVersion("Biostrings")
+library(DECIPHER); packageVersion("DECIPHER")
+library("phyloseq")
+library("plyr")
+library(readxl)
+theme_set(theme_bw())
+
+
+# Identify forward and reverse reads
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+```
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE, cache=FALSE}
+packageVersion("dada2")
+packageVersion("ShortRead")
+packageVersion("Biostrings")
+packageVersion("DECIPHER")
+```
+
+
+# Primers used
+V3-V4 341F, 805R primers:
+FWD <- CCTACGGGNGGCWGCAG  
+REV <- GACTACHVGGGTATCTAATCC
+
+# Checking reading quality profiles
+Quality profile of the forward reads:
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+plotQualityProfile(fnFs[1:6])
+```
+
+Quality profile of the reverse reads:
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+plotQualityProfile(fnRs[1:6])
+```
+
+# Filtering reads
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+
+# Place filtered files in filtered/ subdirectory
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, trimLeft=c(17,21), truncLen=c(240,240),
+              maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
+              compress=TRUE, multithread=FALSE, matchIDs=TRUE) # On Windows set multithread=FALSE
+
+out
+
+```
+
+
+
+# Learning about error rates
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+errF <- learnErrors(filtFs, multithread=FALSE)
+errR <- learnErrors(filtRs, multithread=FALSE)
+```
+
+View the estimated error rates:
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+plotErrors(errF, nominalQ=TRUE) 
+```
+
+# Application to samples
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+derepFs <- derepFastq(filtFs, verbose = TRUE)
+derepRs <- derepFastq(filtRs, verbose = TRUE)
+
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+
+dadaFs <- dada(derepFs, err = errF, multithread = TRUE)
+dadaRs <- dada(derepRs, err = errR, multithread = TRUE)
+```
+
+
+# Merging reads
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+```
+
+
+# Bulding an ASVs table
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+seqtab <- makeSequenceTable(mergers)
+
+```
+
+
+# Checking the distribution of sequence lengths
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+options(max.print="500")
+table(nchar(getSequences(seqtab)))
+```
+
+Selection of reads between 380 and 450 bp
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+seqtab2 <- seqtab[,nchar(colnames(seqtab)) %in% 380:450]
+options(max.print="500")
+table(nchar(getSequences(seqtab2)))
+
+
+# Remove chimeras
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+seqtab.nochim <- removeBimeraDenovo(seqtab2, method="consensus", multithread=FALSE, verbose=TRUE) 
+dim(seqtab.nochim)
+sum(seqtab.nochim)/sum(seqtab2)
+```
+
+# Summary of the different steps of the pipeline
+
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+
+## If processing a single sample, remove the sapply calls: e.g. replace sapply(dadaFs, getN) with getN(dadaFs)
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+options(max.print="800")
+kableExtra::kable(track)
+```
+
+
+# Assignment
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+taxa <- assignTaxonomy(seqtab.nochim, "./silva_nr_v138_train_set.fa.gz", multithread=FALSE)
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+taxa <- addSpecies(taxa, "./silva_species_assignment_v138.fa.gz")
+```
+
+# Viewing the found assignments :
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+taxa.print <- taxa # Removing sequence rownames for display only
+rownames(taxa.print) <- NULL
+head(taxa.print)
+
+```
+
+# saving the global environment
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+save( out, fnFs, fnRs, seqtab, seqtab.nochim, track,sample.names, taxa, errF, file = "./assignation.rda")
+```
