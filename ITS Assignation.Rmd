@@ -1,0 +1,314 @@
+---
+title: "ITS Assignment"
+author: "Raphael Enaud"
+date: '`r format(Sys.time(), "%d %m %Y")`'
+
+header-includes:
+   - \usepackage{color, fancyvrb}
+output:
+  rmdformats::readthedown:
+    highlight: kate
+    numbersections : yes    
+  html_document: 
+    fig_height: 7
+    fig_width: 10
+---
+
+
+```{r knitrinit, include=FALSE, warning=FALSE, message=FALSE, cache=TRUE}
+
+# In "path", create a folder "Fastq" with the sequences R1 and R2. 
+
+library(knitr)
+library(rmdformats)
+library("kableExtra")
+library(DESeq2)
+library("ggplot2")     
+library("readxl")       
+library("dplyr")      
+library(knitr)
+library(rmdformats)
+library("kableExtra")
+library(DESeq2)
+library(psy)
+library(Rcpp)
+library(nnet)
+library(dplyr)
+library(ggplot2)
+library(psy)
+library(prettyR)
+library(corrplot)
+library(readr)
+library(questionr)
+library(finalfit)
+library(labelled)
+library("dada2")
+library(ShortRead)
+library(Biostrings)
+library(DECIPHER)
+library("plyr")
+library("phyloseq")
+library("ranacapa")
+theme_set(theme_bw())
+
+
+library(rstudioapi)    
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+path <- file.path(".")
+input <-list.dirs(path, full.names = F, recursive = F)
+
+qual <-"./quality/"
+outp <-"./output/"
+fastq <- "./Fastq"
+R1 <- "./R1"
+
+fnFs <- sort(list.files(fastq, pattern = "_R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(fastq, pattern = "_R2_001.fastq.gz", full.names = TRUE))
+
+## ITS2 Primers (ITS7F / 3271R):
+FWD <- "GTGARTCATCGAATCTTT"  
+REV <- "GATATGCTTAAGTTCAGCGGGT" 
+```
+
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+
+# Checking the presence and orientation of primers
+allOrients <- function(primer) {
+  # Create all orientations of the input sequence
+  require(Biostrings)
+  dna <- DNAString(primer)  # The Biostrings works w/ DNAString objects rather than character vectors
+  orients <- c(Forward = dna, Complement = Biostrings::complement(dna), Reverse = reverse(dna), 
+               RevComp = reverseComplement(dna))
+  return(sapply(orients, toString))  # Convert back to character vector
+}
+FWD.orients <- allOrients(FWD)
+REV.orients <- allOrients(REV)
+FWD.orients
+REV.orients 
+
+# Pre filtration
+fnFs.filtN <- file.path(fastq, "filtN", basename(fnFs)) # Put N-filterd files in filtN/ subdirectory
+fnRs.filtN <- file.path(fastq, "filtN", basename(fnRs))
+out <- filterAndTrim(fnFs, fnFs.filtN, fnRs, fnRs.filtN, maxN = 0, multithread = TRUE)
+
+primerHits <- function(primer, fn) {
+  # Counts number of reads in which the primer is found
+  nhits <- vcountPattern(primer, sread(readFastq(fn)), fixed = FALSE)
+  return(sum(nhits > 0))
+}
+
+
+```
+
+Number of primers found :
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs.filtN[[1]]), 
+      FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = fnRs.filtN[[1]]), 
+      REV.ForwardReads = sapply(REV.orients, primerHits, fn = fnFs.filtN[[1]]), 
+      REV.ReverseReads = sapply(REV.orients, primerHits, fn = fnRs.filtN[[1]]))
+```
+
+
+# Primer removal
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+
+cutadapt <- "C:/Users/EnaudR/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.9_qbz5n2kfra8p0/LocalCache/local-packages/Python39/Scripts/cutadapt.exe" # CHANGE ME to location on your machine
+
+
+R1 <- file.path(path, "R1")
+if(!dir.exists(R1)) dir.create(R1)
+R2 <- file.path(path, "R2")
+if(!dir.exists(R2)) dir.create(R2)
+
+fnFs.cut <- file.path(R1, basename(fnFs))
+fnRs.cut <- file.path(R2, basename(fnRs))
+
+FWD.RC <- dada2:::rc(FWD)
+REV.RC <- dada2:::rc(REV)
+# Trim FWD and the reverse-complement of REV off of R1 (forward reads)
+R1.flags <- paste("-g", FWD, "-a", REV.RC) 
+# Trim REV and the reverse-complement of FWD off of R2 (reverse reads)
+R2.flags <- paste("-G", REV, "-A", FWD.RC) 
+
+# Run Cutadapt
+for(i in seq_along(fnFs)) {
+  system2(cutadapt, args = c(R1.flags, R2.flags, "-n", 2, # -n 2 required to remove FWD and REV from reads
+                             "-m", 20, "-o", fnFs.cut[i], "-p", fnRs.cut[i], # output files, filtrage des reads au minimum 20 pb
+                             fnFs.filtN[i], fnRs.filtN[i])) # input files
+}
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs.cut[[1]]), 
+      FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = fnRs.cut[[1]]), 
+      REV.ForwardReads = sapply(REV.orients, primerHits, fn = fnFs.cut[[1]]), 
+      REV.ReverseReads = sapply(REV.orients, primerHits, fn = fnRs.cut[[1]]))
+```
+
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+
+path <- file.path(".")
+input<-list.dirs(path, full.names = F, recursive = F)
+
+qual<-"./quality/"
+outp<-"./output/"
+R1 = "./R1"
+
+write.fasta.dada<-function(dada2, file){
+  seqs<-dada2::getSequences(dada2)
+  hash<-paste0(">",sapply(seqs, openssl::sha1, USE.NAMES = F))
+  write(c(rbind(hash, seqs)),file)
+}
+
+for (R1 in R1){
+  # List FASTQ files
+  fq <-list.files(file.path(path,"R1"), pattern="_001.fastq.gz")
+    # Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+  sample.names <- sapply(strsplit(fq, "_"), `[`, 1)
+
+  # Add the full path 
+  fq <- file.path(R1, fq)
+
+  filt_path <- file.path(qual,"R1") # Place filtered files in subdirectory
+  dir.create(filt_path, recursive = T)
+  # Prepare future filenames
+  filt <- file.path(filt_path, paste0(sample.names, ".filt.fastq.gz"))
+ 
+  
+  out.ee <- ldply(1:length(sample.names),function(i) {
+    fastqFilter(fn = fq[i],
+                fout = filt[i],
+                trimLeft = 0,minLen = 100,
+                maxN=0, maxEE = 1, rm.phix=TRUE,
+                compress=TRUE)
+  })
+  
+  # Dereplication
+  derep <- llply(1:length(sample.names), function(i){
+    derepFastq(filt[i], verbose=TRUE)
+  })
+  names(derep)<-sample.names
+  
+  # Learn errors
+  err <- learnErrors(derep, multithread=3)
+  
+  
+  # Get variants
+  dada_obj<-dada(derep, err=err, multithread = 3)
+  # Create output directory
+  #outp_rds<-file.path(outp,R1, "RDS")
+  #dir.create(outp_rds, recursive = T)
+  #saveRDS(dada_obj, file = paste0(outp_rds,"/",R1,".RDS"), compress = "gzip")
+  
+  # Produce Variant Table
+  seqtab<-makeSequenceTable(dada_obj)
+
+  
+  
+  # Remove Chimeras
+  seqtab.nochim <- removeBimeraDenovo(seqtab, verbose=TRUE)
+
+}
+```
+
+
+
+# List of samples
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+sample.names
+```
+
+
+# Checking reading quality profiles
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+plotQualityProfile(fq[1:2])
+```
+
+# Filtering reads
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+# Place filtered files in filtered/ subdirectory
+
+```
+
+
+# Learning about error rates
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+plotErrors(err, nominalQ=TRUE) 
+```
+
+
+# Bulding an ASVs table
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+seqtab <- makeSequenceTable(dada_obj)
+dim(seqtab)
+```
+
+# Checking the distribution of sequence lengths
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+options(max.print="500")
+table(nchar(getSequences(seqtab)))
+
+
+```
+
+# Remove chimeras
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+seqtab.nochim <- removeBimeraDenovo(seqtab, verbose=TRUE) 
+dim(seqtab.nochim)
+sum(seqtab.nochim)/sum(seqtab)
+table(nchar(getSequences(seqtab.nochim)))
+```
+
+
+# Summary of the different steps of the pipeline
+
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dada_obj, getN), rowSums(seqtab.nochim))
+
+## If processing a single sample, remove the sapply calls: e.g. replace sapply(dadaFs, getN) with getN(dadaFs)
+colnames(track) <- c("input", "filtered", "denoised", "nonchim")
+rownames(track) <- sample.names
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+options(max.print="600")
+track
+
+```
+
+# Assignment
+
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+library(stringr)
+unite.ref <- "./sh_general_release_dynamic_s_10.05.2021.fasta"  # CHANGE ME to location on your machine
+taxa <- assignTaxonomy(seqtab.nochim, unite.ref, multithread = TRUE, tryRC = TRUE)
+
+str_replace_all(taxa, pattern = "k__", replacement = "")
+str_replace_all(taxa, pattern = "p__", replacement = "")
+str_replace_all(taxa, pattern = "c__", replacement = "")
+str_replace_all(taxa, pattern = "o__", replacement = "")
+str_replace_all(taxa, pattern = "f__", replacement = "")
+str_replace_all(taxa, pattern = "g__", replacement = "")
+str_replace_all(taxa, pattern = "s__", replacement = "")
+
+
+```
+
+Viewing the found assignments :
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+taxa.print <- taxa  # Removing sequence rownames for display only
+rownames(taxa.print) <- NULL
+head(taxa.print)
+```
+
+
+# saving the global environment 
+save( out.ee, fq, seqtab, seqtab.nochim, err, track,sample.names, taxa , file = "./assignation Unite.rda")
+```
+
+

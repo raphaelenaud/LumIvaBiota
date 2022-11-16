@@ -1,0 +1,240 @@
+---
+title: "ITS Pre processing"
+author: "Renaud Prevel & Raphael Enaud"
+date: '`r format(Sys.time(), "%d %m %Y")`'
+
+header-includes:
+   - \usepackage{color, fancyvrb}
+output:
+  rmdformats::readthedown:
+    highlight: kate
+    numbersections : yes    
+  html_document: 
+    fig_height: 7
+    fig_width: 10
+---
+---
+
+```{r knitrinit, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+
+library(rstudioapi)    
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+load("./assignation Unite.rda")
+
+library(knitr)
+library(rmdformats)
+library("kableExtra")
+library(DESeq2)
+library("ggplot2")     
+library("readxl")       
+library("dplyr")      
+library(knitr)
+library(rmdformats)
+library(psy)
+library(Rcpp)
+library(nnet)
+library(dplyr)
+library(ggplot2)
+library(psy)
+library(prettyR)
+library(corrplot)
+library(readr)
+library(questionr)
+library(finalfit)
+library(labelled)
+library("dada2")
+library(ShortRead)
+library(Biostrings)
+library(DECIPHER)
+library("plyr")
+theme_set(theme_bw())
+
+
+library (phyloseq)
+library(BiocStyle)
+library(ape)
+library(tidyr)
+library(broom)
+library(dplyr)
+library(Hmisc)
+library (microbiome)
+library (picante)
+library(plyr)
+library(reshape2)
+library(doBy)
+library(RVAideMemoire)
+library (vegan)
+library(heatmap.plus)
+library(RColorBrewer)
+library(gplots)
+library(kableExtra)
+library(gridExtra)
+library(knitr)
+library(microbiomeSeq)
+library(adespatial)
+library(ggpubr)
+library (devtools)
+library(yingtools2)
+library("microDecon")
+```
+
+
+```{r, include=FALSE}
+
+# Creation of the phyloseq object
+
+library(rstudioapi)    
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+load("./assignation Unite.rda")
+
+samdf<- read_xlsx("./Sample Data.xlsx”)
+samples_df <- sample_data(samdf)
+
+rownames(samples_df) <- samples_df$sample
+samples_df$Groupe <- factor(samples_df$Groupe)
+samples_df$Sample_or_Control <- factor(samples_df$Sample_or_Control)
+
+
+library(stringr)
+taxa=data.frame(taxa)
+
+taxa$Kingdom = str_replace_all(taxa$Kingdom, pattern = "k__", replacement = "")
+taxa$Phylum = str_replace_all(taxa$Phylum, pattern = "p__", replacement = "")
+taxa$Class = str_replace_all(taxa$Class, pattern = "c__", replacement = "")
+taxa$Order = str_replace_all(taxa$Order, pattern = "o__", replacement = "")
+taxa$Family = str_replace_all(taxa$Family, pattern = "f__", replacement = "")
+taxa$Genus = str_replace_all(taxa$Genus, pattern = "g__", replacement = "")
+taxa$Species = str_replace_all(taxa$Species, pattern = "s__", replacement = "")
+
+taxa = as.matrix(taxa)
+
+phylo <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=FALSE), 
+               sample_data(samples_df), 
+               tax_table(taxa))
+
+# Numbering the ASVs
+dna <- Biostrings::DNAStringSet(taxa_names(phylo))
+names(dna) <- taxa_names(phylo)
+phylo <- merge_phyloseq(phylo, dna)
+taxa_names(phylo) <- paste0("ASV", seq(ntaxa(phylo)))
+phylo
+```
+
+# Check the number of reads
+
+```{r, echo=FALSE}
+df <- as.data.frame(sample_data(phylo)) # Put sample_data into a ggplot-friendly data.frame
+df$LibrarySize <- sample_sums(phylo)
+df <- df[order(df$LibrarySize),]
+df$Index <- seq(nrow(df))
+ggplot(data=df, aes(x=Index, y=LibrarySize, color=Sample_or_Control, label = sample)) + geom_point()
+
+kableExtra::kable(sort(sample_sums(phylo))) %>%
+  kable_styling() %>%
+  scroll_box(width = "100%", height = "600px")
+```
+
+# Selection of fungal ASVs
+
+```{r, echo=FALSE}
+phylo = subset_taxa(phylo, Class !="NA")
+phylo
+```
+
+# Filtering of minority ASVs
+
+
+# Rarefaction curves
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 10, fig.height= 10}
+
+library(vegan)
+library(ggplot2)
+library("ranacapa")
+phylo = prune_samples(names(which(sample_sums(phylo) >= 1)), phylo) 
+rarefactioncurves = ggrare(phylo, step = 100, label = "sample", color = "Sample_or_Control",se = FALSE)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 10, fig.height= 10}
+rarefactioncurves 
+```
+
+
+# Beta diversity
+
+Measurement of Beta Diversity by Bray Curits
+## MDS representation (multi-dimensional scaling)
+
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 10, fig.height= 10}
+
+# Transform data to proportions as appropriate for Bray-Curtis distances
+ps.prop <- transform_sample_counts(phylo, function(otu) otu/sum(otu))
+ord.nmds.bray <- ordinate(ps.prop, method="MDS", distance="bray")
+
+```
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 10, fig.height= 10}
+plot_ordination(ps.prop, ord.nmds.bray, type="samples", label = "sample", color = "Sample_or_Control", title="MDS")
+
+```
+
+
+## Representation NMDS (Non-metric multi-dimensional scaling)
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 10, fig.height= 10}
+ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
+
+```
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 10, fig.height= 10}
+plot_ordination(ps.prop, ord.nmds.bray, type="samples", label = "sample", color = "Sample_or_Control",title="NMDS")
+
+```
+
+
+# Beta diversity tree (with Bray Curtis dissimilarity index)
+```{r, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+library("ape")
+random_tree = rtree(ntaxa(phylo), rooted=TRUE, tip.label=taxa_names(phylo))
+
+phylo1 = merge_phyloseq(phylo,random_tree)
+phylo1
+
+# Dissimilarity measurement with Bray Cutris
+GPUF <- round(distance(phylo1,"bray"),3)
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 7, fig.height= 26}
+
+
+# Creating a tree 
+## Manually define color-shading vector based on sample type.
+colorScale <- rainbow(length(levels(getVariable(phylo1, "Sample_or_Control"))))
+cols <- colorScale[getVariable(phylo1, "Sample_or_Control")]
+GP.tip.labels <- as(getVariable(phylo1, "sample"), "character")
+GP.hclust <- hclust(GPUF, method = "average")
+
+plot(as.phylo(GP.hclust), show.tip.label = TRUE, tip.color = "white")
+tiplabels(GP.tip.labels, col = cols, frame = "none",adj = -0.05,cex = 0.7)
+```
+
+# Removal of negative controls and Mock
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+phylo <- subset_samples(phylo, Sample_or_Control =="sample")
+phylo = prune_taxa(names(which(taxa_sums(phylo) >= 1)), phylo)
+phylo
+
+```
+ 
+ 
+
+# Resume of the final dataset
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+summarize_phyloseq(phylo)
+```
+ 
+# saving the global environment
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+save(phylo, list,file="Phylo pre processed.rda")
+```
+

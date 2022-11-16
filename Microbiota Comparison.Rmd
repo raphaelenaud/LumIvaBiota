@@ -1,0 +1,573 @@
+---
+title: "Microbiota Comparison"
+author: "Renaud Prevel & Raphael Enaud"
+date: '`r format(Sys.time(), "%d %m %Y")`'
+
+header-includes:
+   - \usepackage{color, fancyvrb}
+output:
+  rmdformats::readthedown:
+    highlight: kate
+    numbersections : yes    
+  html_document: 
+    fig_height: 7
+    fig_width: 10
+---
+
+```{r knitrinit, include=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+
+library(knitr)
+library(rmdformats)
+library("kableExtra")
+library(DESeq2)
+library("ggplot2")     
+library("readxl")       
+library("dplyr")      
+library(knitr)
+library(rmdformats)
+library("kableExtra")
+library(DESeq2)
+library(psy)
+library(Rcpp)
+library(nnet)
+library(dplyr)
+library(ggplot2)
+library(psy)
+library(prettyR)
+library(corrplot)
+library(readr)
+library(questionr)
+library(finalfit)
+library(labelled)
+library("dada2")
+packageVersion("dada2")
+library(ShortRead)
+packageVersion("ShortRead")
+library(Biostrings)
+packageVersion("Biostrings")
+library(DECIPHER); packageVersion("DECIPHER")
+library("plyr")
+theme_set(theme_bw())
+
+
+library (phyloseq)
+library(BiocStyle)
+library(ggplot2)
+library(ape)
+library(tidyr)
+library(broom)
+library(dplyr)
+library(Hmisc)
+library (microbiome)
+library (picante)
+library(plyr)
+library(reshape2)
+library(doBy)
+library(RVAideMemoire)
+library (vegan)
+library(RColorBrewer)
+library(gplots)
+library(kableExtra)
+library(gridExtra)
+library(knitr)
+library(microbiomeSeq)
+library(adespatial)
+library(ggpubr)
+library (devtools)
+library(yingtools2)
+
+```
+
+
+```{r, include=FALSE}
+library(rstudioapi)    
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+load("./Phylo pre processed.rda")
+phylo
+```
+
+```{r, echo=FALSE, warning=FALSE}
+summarize_phyloseq(phylo)
+```
+
+# Analyses of alpha Diversity
+```{r, include=FALSE}
+
+library(forcats)
+sample_data(phylo)$Groupe = fct_relevel(sample_data(phylo)$Groupe,"Before","After")
+
+ps_rare <- phyloseq::rarefy_even_depth(phylo, sample.size=min(sample_sums(phylo)),replace = FALSE, rngseed=TRUE)
+
+adiv <- data.frame(
+  "Observed" = phyloseq::estimate_richness(ps_rare, measures = "Observed"),
+  "Shannon" = phyloseq::estimate_richness(ps_rare, measures = "Shannon"),
+  "Simpson" = phyloseq::estimate_richness(ps_rare, measures = "Simpson"),
+  "Groupe" = phyloseq::sample_data(ps_rare)$Groupe)
+diversity = adiv
+```
+
+```{r, echo=FALSE}
+kableExtra::kable(alpha) %>%
+  kable_styling() 
+```
+
+```{r, include=FALSE}
+library(ggpubr)
+library(rstatix)
+
+stat.test_Observed <- adiv %>%
+  wilcox_test( Observed~ Groupe) %>%
+  add_significance()
+stat.test_Observed$p_Observed = stat.test_Observed$p
+
+bxp_Observed = adiv %>%
+  gather(key = metric, value = value, "Observed") %>%
+  mutate(metric = factor(metric, levels = "Observed")) %>%
+  ggplot(aes(x = Groupe, y = value)) +
+  geom_boxplot(outlier.color = NA) +
+  geom_jitter(aes(color = Groupe), height = 0, width = .2) +
+  labs(x = "", y = "") +
+  facet_wrap(~ metric, scales = "free") +
+  theme(legend.position="none") 
+
+stat.test_Observed <- stat.test_Observed %>% add_xy_position(x = "Groupe")
+
+bxp_Observed = bxp_Observed +
+  stat_pvalue_manual(stat.test_Observed, label = "p", tip.length = 0.001) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+stat.test_Shannon <- adiv %>%
+  wilcox_test( Shannon~ Groupe) %>%
+  add_significance()
+stat.test_Shannon$p_Shannon = stat.test_Shannon$p
+
+bxp_Shannon = adiv %>%
+  gather(key = metric, value = value, "Shannon") %>%
+  mutate(metric = factor(metric, levels = "Shannon")) %>%
+  ggplot(aes(x = Groupe, y = value)) +
+  geom_boxplot(outlier.color = NA) +
+  geom_jitter(aes(color = Groupe), height = 0, width = .2) +
+  labs(x = "", y = "") +
+  facet_wrap(~ metric, scales = "free") +
+  theme(legend.position="none") 
+
+stat.test_Shannon <- stat.test_Shannon %>% add_xy_position(x = "Groupe")
+
+bxp_Shannon = bxp_Shannon +
+  stat_pvalue_manual(stat.test_Shannon, label = "p", tip.length = 0.001) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+
+stat.test_Simpson <- adiv %>%
+  wilcox_test( Simpson~ Groupe) %>%
+  add_significance()
+stat.test_Simpson$p_Simpson = stat.test_Simpson$p
+
+bxp_Simpson = adiv %>%
+  gather(key = metric, value = value, "Simpson") %>%
+  mutate(metric = factor(metric, levels = "Simpson")) %>%
+  ggplot(aes(x = Groupe, y = value)) +
+  geom_boxplot(outlier.color = NA) +
+  geom_jitter(aes(color = Groupe), height = 0, width = .2) +
+  labs(x = "", y = "") +
+  facet_wrap(~ metric, scales = "free") +
+  theme(legend.position="none") 
+
+stat.test_Simpson <- stat.test_Simpson %>% add_xy_position(x = "Groupe")
+
+bxp_Simpson = bxp_Simpson +
+  stat_pvalue_manual(stat.test_Simpson, label = "p", tip.length = 0.001) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.1)))
+
+```
+
+```{r, echo=FALSE}
+
+ggarrange(bxp_Observed, bxp_Shannon, bxp_Simpson,
+                    labels = c("A", "B", "C"),
+                    ncol = 3, nrow = 1)
+```
+
+
+# Analyses of Beta Diversity 
+
+## Multidimensional Scaling (MDS) with Bray-Curtis dissimilarity 
+```{r, include=FALSE}
+
+# Transform data to proportions as appropriate for Bray-Curtis distances
+ps.prop <- transform_sample_counts(phylo, function(otu) otu/sum(otu))
+ord.nmds.bray <- ordinate(ps.prop, method="MDS", distance="bray")
+```
+
+```{r echo=FALSE, warning=FALSE}
+plot_ordination(ps.prop, ord.nmds.bray, color="Groupe", label= "sample", title="Bray MDS") + geom_point(size=2)
+```
+
+
+## Non-metric multidimensional scaling (NMDS) with Bray-Curtis dissimilarity
+
+```{r, include=FALSE}
+# Transform data to proportions as appropriate for Bray-Curtis distances
+ps.prop <- transform_sample_counts(phylo, function(otu) otu/sum(otu))
+ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
+```
+
+```{r echo=FALSE, warning=FALSE}
+plot_ordination(ps.prop, ord.nmds.bray, color="Groupe", label= "sample", title="Bray NMDS") + geom_point(size=2)
+```
+
+## Analysis of variance (PERMANOVA)
+
+```{r, include=FALSE}
+# Pick relative abundances (compositional) and sample metadata 
+
+library(microbiome)
+library(ggplot2)
+library(dplyr)
+pseq.rel <- microbiome::transform(phylo, "compositional")
+
+otu <- abundances(pseq.rel)
+meta <- meta(pseq.rel)
+
+```
+
+```{r, echo=FALSE}
+
+# samples x species as input
+library(vegan)
+permanova <- adonis(t(otu) ~ Groupe,
+               data = meta, permutations=99, method = "bray")
+
+# P-value
+print(as.data.frame(permanova$aov.tab)["Groupe", "Pr(>F)"])
+```
+
+
+Check that the assumptions of homogeneity of variance hold (to ensure the reliability of the results). The p-Value (Pr) must be > 0.05:
+
+```{r, echo=FALSE}
+dist <- vegdist(t(otu))
+anova(betadisper(dist, meta$Groupe))
+```
+
+Show the coefficients of the higher taxa separating the Groups
+```{r, include=FALSE}
+
+#formatage des noms taxonomiques
+library(microbiomeMarker)
+library("fantaxtic")
+library("sjmisc")
+
+phylo_rename = phylo
+
+taxa2= data.frame(tax_table(name_taxa(phylo_rename,species = T, label="", )))
+
+for (i in 1:length(taxa2$Kingdom)){
+if (!str_contains(taxa2$Kingdom[i],"("))
+  {taxa2$Kingdom[i] = paste(taxa2$Kingdom[i], "(Kingdom)")
+}
+}
+
+for (i in 1:length(taxa2$Phylum)){
+if (!str_contains(taxa2$Phylum[i],"("))  
+  {taxa2$Phylum[i] = paste(taxa2$Phylum[i], "(Phylum)")
+}
+}
+
+for (i in 1:length(taxa2$Class)){
+if (!str_contains(taxa2$Class[i],"(")) 
+  {taxa2$Class[i] = paste(taxa2$Class[i], "(Class)")
+}
+}
+
+for (i in 1:length(taxa2$Order)){
+if (!str_contains(taxa2$Order[i],"("))
+  {taxa2$Order[i] = paste(taxa2$Order[i], "(Order)")
+}
+}
+
+
+for (i in 1:length(taxa2$Family)){
+if (!str_contains(taxa2$Family[i],"("))
+  {taxa2$Family[i] = paste(taxa2$Family[i], "(Family)")
+}
+}
+
+for (i in 1:length(taxa2$Genus)){
+if (!str_contains(taxa2$Genus[i],"("))
+  {taxa2$Genus[i] = paste(taxa2$Genus[i], "(Genus)")
+}
+}
+
+
+for (i in 1:length(taxa2$Species)){
+if (!str_contains(taxa2$Species[i],"("))
+  {taxa2$Species[i] = paste(taxa2$Species[i], "(Species)")
+}
+}
+
+
+tax_table(phylo_rename) = as.matrix(taxa2)
+
+taxa_names(phylo_rename) =  paste (taxa_names(phylo_rename), tax_table(phylo_rename)[,7])
+x = row.names(taxa_names(phylo_rename))
+  
+
+
+
+pseq.rel2 <- microbiome::transform(phylo_rename, "compositional")
+otu2 <- abundances(pseq.rel2)
+meta2 <- meta(pseq.rel2)
+permanova2 <- adonis(otu2 ~ Groupe,
+               data = meta2, permutations=99, method = "bray")
+dist2 <- vegdist(otu2)
+
+coef2 <- coefficients(permanova2)["Groupe1",]
+top.coef2 <- coef2[rev(order(abs(coef2)))[1:20]]
+par(mar = c(3, 14, 2, 1))
+
+```
+
+```{r, include=FALSE}
+barplot(sort(top.coef2), horiz = T, las = 1, main = "Top taxa")
+
+```
+
+```{r, include=FALSE}
+# Selection of ASVs that separate the two Groups
+coef <- coefficients(permanova)["Groupe1",]
+top.coef <- coef[rev(order(abs(coef)))[1:20]]
+par(mar = c(3, 14, 2, 1))
+top.coef <- (data.frame(top.coef))
+top.coef = row.names(top.coef)
+allTaxa = taxa_names(phylo)
+selecttopcoed <- allTaxa[(allTaxa %in% top.coef)]
+topasv = prune_taxa(selecttopcoed, phylo)
+```
+
+```{r, echo=FALSE}
+kable(tax_table(topasv))
+```
+
+
+# Analysis at the phyla level
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 18, fig.height= 8}
+phylo_phylum <- tax_glom(phylo, "Phylum", NArm = TRUE)
+phylo.prop <- transform_sample_counts(phylo_phylum, function(otu) otu/sum(otu)* 100)
+```
+
+## Most prevalent Phyla
+```{r, echo=FALSE}
+#Converting to Relative Abundance
+phylo_rel= transform_sample_counts(phylo, function(x) x / sum(x) )
+
+#Agglomerating taxa of the same type at the Phylum level (phyloseq object: phylo_rel)
+glom <- tax_glom(phylo_rel, taxrank = 'Phylum')
+
+#Creating a dataframe in long format from new phyloseq object (glom)
+dat <- psmelt(glom)
+
+
+
+#Converting factor "Phylum" to a character vector 
+dat$Phylum <- as.character(dat$Phylum)
+
+#Groupeing by Phylum ==> calculating mean Relative Abundance
+mean <- ddply(dat, ~Phylum, function(x) c(mean=mean(x$Abundance)))
+
+#Identifying Phyla whose mean Relative Abundance is <=2%
+Others <- mean[mean$mean <= 0.02,]$Phylum
+
+#Checking the most frequent Phyla - for ordering
+options(scipen=999)
+library(plyr)
+phylum_graph <- as.data.frame(ddply(dat, c("Phylum"), summarise,mean = mean (Abundance)))
+
+phylum_graph = arrange(phylum_graph, desc(mean))
+kable(phylum_graph)
+
+dat$Phylum = fct_reorder(dat$Phylum,dat$Abundance,mean.default)
+
+#Visualizing boxplot (most abundant Phyla + Others)
+ggplot = ggplot(dat,
+       aes(x=Phylum,
+           y=Abundance, fill=Phylum)) 
+
+ggplot + geom_boxplot() + coord_flip() + scale_color_brewer(palette="Blues") + theme_classic() + labs(x = "Samples", y = "Normalized abundance") + guides(fill = guide_legend(reverse=TRUE))
+```
+
+  
+
+## Comparison of groups at the phyla level
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE, fig.width = 18, fig.height= 8}
+
+
+phylo.prop = prune_taxa(taxa_sums(phylo.prop) > 0.05, phylo.prop)
+
+phyla_plot = plot_bar(phylo.prop, fill="Phylum")
+phyla_plot + facet_wrap(~Groupe, nrow=1, scales="free_x")+ labs(x = "Samples", y = "Reads abundance (normalized)")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE}
+
+taxa_abundance_table_phylum <- psmelt(phylo.prop)
+
+BoxPlot_phylum <- taxa_abundance_table_phylum %>% 
+  ggplot(aes(x =Phylum, y = Abundance, fill = Phylum)) +
+  geom_boxplot() +
+  labs(x = "",
+       y = "Relative Abundance",
+       title = "Phylum Relative Abundance") +
+  facet_grid(~ Groupe, scales = "free") +
+  theme(
+    axis.text.x = element_text(size = 10, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 10),
+    strip.text = element_text(size = 12)
+  )
+
+BoxPlot_phylum
+
+#Creating a dataframe in long format from new phyloseq object (glom)
+dat <- psmelt(glom)
+
+#Converting factor "Phylum" to a character vector 
+dat$Phylum <- as.character(dat$Phylum)
+
+RANK <- 'Phylum'
+dat %>%
+  filter(Phylum!= "Others") %>%
+  group_by_(RANK) %>%
+  do(tidy(wilcox.test (Abundance ~ Groupe, data=., exact=F))) %>%
+  ungroup() %>%
+  mutate(p.adjust=p.adjust(p.value, method = "fdr")) -> Groupe_phylum.results
+
+
+
+arrange(Groupe_phylum.results,p.adjust) %>%
+  knitr::kable()
+```
+
+# Comparison of groups at the Genus level
+
+
+## Most prevalent Genus
+
+Others = less than 0.01% abundance
+```{r, echo=FALSE}
+
+#Agglomerating taxa of the same type at the genus level (phyloseq object: phylo_rel)
+glom_g <- tax_glom(phylo_rel, taxrank = 'Genus')
+
+#Creating a dataframe in long format from new phyloseq object (glom_g)
+dat_g <- psmelt(glom_g)
+
+#Converting factor "Genus" to a character vector 
+dat_g$Genus <- as.character(dat_g$Genus)
+
+#Groupeing by genus ==> calculating mean Relative Abundance
+mean_g <- ddply(dat_g, ~Genus, function(x) c(mean=mean(x$Abundance)))
+
+#Identifying Genera whose mean Relative Abundance is <=1%
+Others <- mean_g[mean_g$mean <= 0.01,]$Genus
+
+#Relabing less abundant genus as "Others" 
+dat_g[dat_g$Genus %in% Others,]$Genus <- 'Others'
+
+
+#Checking the most frequent genus - for ordering
+options(scipen=999)
+library(plyr)
+genus_graph <- as.data.frame(ddply(dat_g, c("Genus"), summarise,mean = mean (Abundance)))
+
+genus_graph = arrange(genus_graph, desc(mean))
+kable(genus_graph)
+
+dat_g$Genus = fct_reorder(dat_g$Genus,dat_g$Abundance,mean.default)
+
+#Visualizing boxplot (most abundant Genus + Others)
+ggplot = ggplot(dat_g,
+       aes(x=Genus,
+           y=Abundance, fill=Genus))
+
+ggplot + geom_boxplot() + coord_flip() + scale_color_brewer(palette="Blues") + theme_classic() + labs(x = "Samples", y = "Normalized abundance") + guides(fill = guide_legend(reverse=TRUE))
+```
+
+### DeSeq2
+
+```{r, include=FALSE, message=FALSE, warning=FALSE}
+
+head(sample_data(phylo)$Groupe)
+
+diagdds = phyloseq_to_deseq2(phylo, ~ Groupe)
+# calculate geometric means prior to estimate size factors
+gm_mean = function(x, na.rm=TRUE){
+exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans = apply(counts(diagdds), 1, gm_mean)
+diagdds = estimateSizeFactors(diagdds, geoMeans = geoMeans)
+diagdds = DESeq(diagdds, test="Wald", fitType="parametric")
+
+res = results(diagdds, cooksCutoff = FALSE)
+alpha = 0.05 ## à changer (0.01 ou 0.05)
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(phylo)[rownames(sigtab), ], "matrix"))
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+arrange(sigtab,padj) %>%
+knitr::kable() %>%
+  kable_styling() %>%
+  scroll_box(width = "100%", height = "600px")
+
+```
+
+
+
+```{r, echo=FALSE}
+library("ggplot2")
+theme_set(theme_bw())
+sigtabgen = subset(sigtab, !is.na(Genus))
+# Phylum order
+x = tapply(sigtabgen$log2FoldChange, sigtabgen$Phylum, function(x) max(x))
+x = sort(x, TRUE)
+sigtabgen$Phylum = factor(as.character(sigtabgen$Phylum), levels=names(x))
+# Genus order
+x = tapply(sigtabgen$log2FoldChange, sigtabgen$Genus, function(x) max(x))
+x = sort(x, TRUE)
+sigtabgen$Genus = factor(as.character(sigtabgen$Genus), levels=names(x))
+ggplot(sigtabgen, aes(y=Genus, x=log2FoldChange, color=Phylum))+ geom_vline(xintercept = 0.0, color = "gray", size = 0.5) + geom_point(size=6) + 
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5))
+```
+
+ 
+## LEFSe
+
+```{r echo=FALSE, warning=FALSE}
+library(microbiomeMarker)
+library("fantaxtic")
+library("sjmisc")
+
+mm_lefse <- run_lefse(
+    phylo_rename,
+    wilcoxon_cutoff = 0.05,
+    group = "group_OTI",
+    kw_cutoff = 0.05,
+    multigrp_strat = FALSE,
+    lda_cutoff = 2
+)
+marker = data.frame(marker_table(mm_lefse))
+
+knitr::kable(marker) %>%
+  kable_styling() %>%
+  scroll_box(width = "100%", height = "600px")
+```
+
+```{r, echo=FALSE, fig.width = 8, fig.height= 12}
+plot_ef_bar(mm_lefse)
+plot_ef_dot(mm_lefse)
+
+p_abd <- plot_abundance(mm_lefse, group = "group_OTI")
+p_abd
+```
